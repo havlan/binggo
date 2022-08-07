@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/havlan/searchproxy/cmd"
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/havlan/searchproxy/cmd"
+
+	eventhubs "github.com/Azure/azure-event-hubs-go"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metrics "github.com/slok/go-http-metrics/metrics/prometheus"
@@ -25,10 +28,16 @@ func loggingMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	var connStr string = os.Getenv("EVENTHUB_CONNECTIONSTRING")
 
-	// if we can't access api key, don't bother starting up
-	if os.Getenv("ocp_apim_subscription_key") == "" {
-		log.Fatalln("ApiKey not found")
+	hub, err := eventhubs.NewHubFromConnectionString(connStr)
+	_, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
+
+	// clean up resources
+	defer cancel()
+
+	if err != nil {
+		log.Fatalf("failed to get hub %s\n", err)
 	}
 
 	metricsMiddleware := middleware.New(middleware.Config{
@@ -39,8 +48,13 @@ func main() {
 	router.Use(std.HandlerProvider("MetricsMiddleware", metricsMiddleware))
 	router.Use(loggingMiddleware)
 
+	queryStringAnalyzer := make(chan string)
+	defer close(queryStringAnalyzer)
+
 	// api/
-	router.HandleFunc("/api/beta", cmd.HandleBing).Methods("GET")
+	router.HandleFunc("/api/beta", func(w http.ResponseWriter, r *http.Request) {
+		cmd.HandleBing(queryStringAnalyzer, w, r)
+	}).Methods("GET")
 
 	srv := &http.Server{
 		Handler: router,
@@ -64,9 +78,25 @@ func main() {
 			log.Panicf("error while serving metrics: %s", err)
 		}
 	}()
-	
+
+	go func() {
+		for queryString := range queryStringAnalyzer {
+			log.Printf("Query string: %s", queryString)
+		}
+		/*
+			if err := hub.Send(ctx, eventhubs.NewEventFromString(queryString)); err != nil {
+				log.Printf("Failed to send %s\n", err)
+			}
+		*/
+	}()
+
 	// Wait until some signal is captured.
 	sigC := make(chan os.Signal, 1)
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 	<-sigC
+
+	err = hub.Close(context.Background())
+	if err != nil {
+		log.Println(err)
+	}
 }

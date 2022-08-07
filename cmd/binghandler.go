@@ -2,12 +2,15 @@ package cmd
 
 import (
 	"encoding/json"
-	"github.com/gorilla/schema"
 	"log"
 	"net/http"
+
+	"github.com/gorilla/schema"
 )
 
-func HandleBing(w http.ResponseWriter, r *http.Request) {
+func HandleBing(analyzer chan<- string, w http.ResponseWriter, r *http.Request) {
+
+	// decode into a SearchQuery
 	decoder := schema.NewDecoder()
 	var sQuery SearchQuery
 	err := decoder.Decode(&sQuery, r.URL.Query())
@@ -17,14 +20,17 @@ func HandleBing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := Bing(sQuery)
+	// get the BingAnswer
+	result, err := Bing(sQuery, analyzer)
 
+	// api result
 	if err != nil {
-		http.Error(w, "Failed to query api", 503)
+		http.Error(w, "Failed to query api", http.StatusServiceUnavailable)
 		log.Println("Failed to query api ", err.Error())
 		return
 	}
 
+	// deserialization
 	payload, err := json.Marshal(result)
 	if err != nil {
 		log.Println("Failed to marshal result")

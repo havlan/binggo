@@ -1,5 +1,7 @@
 ###
 
-http://127.0.0.1:8000/api/beta?q="Australian shepherd"
+http://127.0.0.1:8000/api/beta?q="Hest"
 
 ###
+
+http://127.0.0.1:8000/api/beta?q="Kake"

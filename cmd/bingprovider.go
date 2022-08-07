@@ -10,9 +10,10 @@ import (
 )
 
 const v7Endpoint string = "https://api.bing.microsoft.com/v7.0/search"
+
 var apiKey = os.Getenv("ocp_apim_subscription_key")
 
-func Bing(search SearchQuery) (*BingAnswer, error){
+func Bing(search SearchQuery, queryStringAnalyzerChannel chan<- string) (*BingAnswer, error) {
 	// Declare a new GET request.
 	req, err := http.NewRequest("GET", v7Endpoint, nil)
 	if err != nil {
@@ -29,7 +30,7 @@ func Bing(search SearchQuery) (*BingAnswer, error){
 	req.Header.Add("Ocp-Apim-Subscription-Key", apiKey)
 
 	// Instantiate a client.
-	client := new(http.Client)
+	client := &http.Client{}
 
 	// Send the request to Bing.
 	resp, err := client.Do(req)
@@ -38,7 +39,10 @@ func Bing(search SearchQuery) (*BingAnswer, error){
 		return nil, err
 	}
 
-	// Close the response.
+	// send query text to channel for processing
+	queryStringAnalyzerChannel <- search.Query
+
+	// defer close the response when code is out of scope.
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
@@ -53,7 +57,7 @@ func Bing(search SearchQuery) (*BingAnswer, error){
 		return nil, err
 	}
 
-	// Create a new answer.
+	// Create a new BingAnswer
 	ans := BingAnswer{}
 	err = json.Unmarshal(body, &ans)
 	if err != nil {
